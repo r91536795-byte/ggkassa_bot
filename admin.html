@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>GGKASSA - Админ панель</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background: var(--tg-theme-bg-color, #ffffff);
+            color: var(--tg-theme-text-color, #000000);
+            padding: 16px;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        .stat-card {
+            background: var(--tg-theme-secondary-bg-color, #f0f0f0);
+            border-radius: 12px;
+            padding: 16px;
+            text-align: center;
+        }
+        .stat-number {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2b9c2e;
+        }
+        .stat-label {
+            font-size: 12px;
+            opacity: 0.7;
+            margin-top: 4px;
+        }
+        .deposit-card {
+            background: var(--tg-theme-secondary-bg-color, #f5f5f5);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+        .deposit-photo {
+            width: 100%;
+            border-radius: 8px;
+            margin-bottom: 12px;
+            max-height: 200px;
+            object-fit: cover;
+        }
+        .deposit-info {
+            margin-bottom: 12px;
+        }
+        .deposit-info p {
+            margin: 4px 0;
+        }
+        .btn-group {
+            display: flex;
+            gap: 12px;
+        }
+        .btn-approve {
+            background: #4caf50;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 10px;
+            flex: 1;
+            cursor: pointer;
+        }
+        .btn-reject {
+            background: #f44336;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 10px;
+            flex: 1;
+            cursor: pointer;
+        }
+        .status-pending {
+            color: #ff9800;
+            font-weight: bold;
+        }
+        .status-approved {
+            color: #4caf50;
+            font-weight: bold;
+        }
+        .status-rejected {
+            color: #f44336;
+            font-weight: bold;
+        }
+        .title {
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .loading {
+            text-align: center;
+            padding: 40px;
+        }
+        .tab-bar {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 20px;
+            background: var(--tg-theme-secondary-bg-color, #f0f0f0);
+            border-radius: 12px;
+            padding: 4px;
+        }
+        .tab {
+            flex: 1;
+            text-align: center;
+            padding: 10px;
+            border-radius: 10px;
+            cursor: pointer;
+        }
+        .tab.active {
+            background: var(--tg-theme-button-color, #2b9c2e);
+            color: white;
+        }
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="title">⚙️ Админ панель</div>
+        
+        <div class="stats" id="stats">
+            <div class="stat-card">
+                <div class="stat-number" id="usersCount">0</div>
+                <div class="stat-label">Пользователей</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="pendingCount">0</div>
+                <div class="stat-label">Заявок</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="totalAmount">0</div>
+                <div class="stat-label">Всего (сом)</div>
+            </div>
+        </div>
+        
+        <div class="tab-bar">
+            <div class="tab active" onclick="showTab('pending')">⏳ В ожидании</div>
+            <div class="tab" onclick="showTab('all')">📋 Все заявки</div>
+        </div>
+        
+        <div id="pendingTab">
+            <div id="pendingList" class="loading">Загрузка...</div>
+        </div>
+        
+        <div id="allTab" class="hidden">
+            <div id="allList" class="loading">Загрузка...</div>
+        </div>
+    </div>
+    
+    <script>
+        let tg = window.Telegram.WebApp;
+        tg.expand();
+        tg.ready();
+        
+        let userId = tg.initDataUnsafe?.user?.id;
+        let deposits = [];
+        let currentTab = 'pending';
+        
+        async function checkAdmin() {
+            try {
+                let response = await fetch(`/api/admin/login`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({user_id: userId})
+                });
+                let data = await response.json();
+                if (!data.admin) {
+                    tg.showAlert('У вас нет доступа к админ-панели!');
+                    tg.close();
+                }
+            } catch(e) {
+                tg.showAlert('Ошибка доступа');
+                tg.close();
+            }
+        }
+        
+        async function loadStats() {
+            try {
+                let response = await fetch(`/api/admin/stats?user_id=${userId}`);
+                let data = await response.json();
+                document.getElementById('usersCount').innerText = data.users || 0;
+                document.getElementById('pendingCount').innerText = data.pending || 0;
+                document.getElementById('totalAmount').innerText = data.total || 0;
+            } catch(e) {}
+        }
+        
+        async function loadDeposits() {
+            try {
+                let response = await fetch(`/api/admin/deposits?user_id=${userId}`);
+                let data = await response.json();
+                deposits = data.deposits || [];
+                renderLists();
+            } catch(e) {}
+        }
+        
+        function renderLists() {
+            // Ожидающие заявки
+            let pending = deposits.filter(d => d.status === 'pending');
+            let pendingHtml = '';
+            if (pending.length === 0) {
+                pendingHtml = '<div class="loading">📭 Нет новых заявок</div>';
+            } else {
+                pendingHtml = pending.map(dep => renderDepositCard(dep)).join('');
+            }
+            document.getElementById('pendingList').innerHTML = pendingHtml;
+            
+            // Все заявки
+            let allHtml = '';
+            if (deposits.length === 0) {
+                allHtml = '<div class="loading">📭 Нет заявок</div>';
+            } else {
+                allHtml = deposits.map(dep => renderDepositCard(dep)).join('');
+            }
+            document.getElementById('allList').innerHTML = allHtml;
+        }
+        
+        function renderDepositCard(dep) {
+            let statusClass = '';
+            let statusText = '';
+            if (dep.status === 'pending') {
+                statusClass = 'status-pending';
+                statusText = '⏳ Ожидает';
+            } else if (dep.status === 'approved') {
+                statusClass = 'status-approved';
+                statusText = '✅ Одобрено';
+            } else {
+                statusClass = 'status-rejected';
+                statusText = '❌ Отклонено';
+            }
+            
+            let buttons = '';
+            if (dep.status === 'pending') {
+                buttons = `
+                    <div class="btn-group">
+                        <button class="btn-approve" onclick="approveDeposit(${dep.id})">✅ Одобрить</button>
+                        <button class="btn-reject" onclick="rejectDeposit(${dep.id})">❌ Отклонить</button>
+                    </div>
+                `;
+            }
+            
+            let photoHtml = '';
+            if (dep.photo && dep.photo !== 'none') {
+                photoHtml = `<img src="${dep.photo}" class="deposit-photo">`;
+            }
+            
+            return `
+                <div class="deposit-card" id="deposit-${dep.id}">
+                    ${photoHtml}
+                    <div class="deposit-info">
+                        <p><strong>Заявка #${dep.id}</strong></p>
+                        <p>👤 Пользователь: <code>${dep.user_id}</code></p>
+                        <p>💰 Сумма: <strong>${dep.amount}</strong> сом</p>
+                        <p>🆔 Счет: ${dep.account_id}</p>
+                        <p>📅 Дата: ${dep.date}</p>
+                        <p>Статус: <span class="${statusClass}">${statusText}</span></p>
+                    </div>
+                    ${buttons}
+                </div>
+            `;
+        }
+        
+        async function approveDeposit(depId) {
+            try {
+                let response = await fetch(`/api/admin/approve`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({user_id: userId, dep_id: depId})
+                });
+                if (response.ok) {
+                    tg.showAlert('✅ Заявка одобрена!');
+                    loadDeposits();
+                    loadStats();
+                }
+            } catch(e) {}
+        }
+        
+        async function rejectDeposit(depId) {
+            try {
+                let response = await fetch(`/api/admin/reject`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({user_id: userId, dep_id: depId})
+                });
+                if (response.ok) {
+                    tg.showAlert('❌ Заявка отклонена!');
+                    loadDeposits();
+                    loadStats();
+                }
+            } catch(e) {}
+        }
+        
+        function showTab(tab) {
+            currentTab = tab;
+            document.querySelectorAll('.tab').forEach((t, i) => {
+                t.classList.remove('active');
+            });
+            event.target.classList.add('active');
+            
+            if (tab === 'pending') {
+                document.getElementById('pendingTab').classList.remove('hidden');
+                document.getElementById('allTab').classList.add('hidden');
+            } else {
+                document.getElementById('pendingTab').classList.add('hidden');
+                document.getElementById('allTab').classList.remove('hidden');
+            }
+        }
+        
+        async function init() {
+            await checkAdmin();
+            await loadStats();
+            await loadDeposits();
+        }
+        
+        init();
+    </script>
+</body>
+  </html>
