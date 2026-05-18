@@ -1,1 +1,0 @@
-# ggkassa_bot
