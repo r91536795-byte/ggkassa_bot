@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>GGKASSA App</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background: var(--tg-theme-bg-color, #ffffff);
+            color: var(--tg-theme-text-color, #000000);
+            padding: 16px;
+        }
+        .container {
+            max-width: 500px;
+            margin: 0 auto;
+        }
+        .balance-card {
+            background: linear-gradient(135deg, #2b9c2e, #1a6b1c);
+            border-radius: 20px;
+            padding: 24px;
+            margin-bottom: 20px;
+            text-align: center;
+            color: white;
+        }
+        .balance-amount {
+            font-size: 48px;
+            font-weight: bold;
+        }
+        .menu-buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        .btn {
+            background: var(--tg-theme-button-color, #2b9c2e);
+            color: var(--tg-theme-button-text-color, #ffffff);
+            border: none;
+            border-radius: 12px;
+            padding: 14px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .btn-secondary {
+            background: var(--tg-theme-secondary-bg-color, #e0e0e0);
+            color: var(--tg-theme-text-color, #000000);
+        }
+        .form-group {
+            margin-bottom: 16px;
+        }
+        .form-input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ccc;
+            border-radius: 10px;
+            font-size: 16px;
+            background: var(--tg-theme-bg-color, #ffffff);
+            color: var(--tg-theme-text-color, #000000);
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            padding: 20px;
+        }
+        .modal-content {
+            background: var(--tg-theme-bg-color, #ffffff);
+            border-radius: 16px;
+            padding: 20px;
+            margin-top: 50px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="balance-card">
+            <div style="font-size: 14px; opacity: 0.9;">Ваш баланс</div>
+            <div class="balance-amount" id="balance">0</div>
+            <div>сом</div>
+        </div>
+        
+        <div class="menu-buttons">
+            <button class="btn" onclick="showDeposit()">💰 Пополнить</button>
+            <button class="btn btn-secondary" onclick="showWithdraw()">💸 Вывести</button>
+        </div>
+        
+        <div class="menu-buttons">
+            <button class="btn btn-secondary" onclick="showSupport()">👨‍💻 Поддержка</button>
+        </div>
+    </div>
+    
+    <!-- Модалка пополнения -->
+    <div id="depositModal" class="modal">
+        <div class="modal-content">
+            <h3>💰 Пополнение</h3>
+            <div class="form-group">
+                <input type="text" id="accountId" class="form-input" placeholder="ID счета">
+            </div>
+            <div class="form-group">
+                <input type="number" id="amount" class="form-input" placeholder="Сумма (от 50 сом)">
+            </div>
+            <div class="form-group">
+                <input type="file" id="photo" accept="image/*">
+            </div>
+            <div class="menu-buttons">
+                <button class="btn" onclick="submitDeposit()">Отправить</button>
+                <button class="btn btn-secondary" onclick="closeModal('depositModal')">Отмена</button>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        let tg = window.Telegram.WebApp;
+        tg.expand();
+        tg.ready();
+        
+        let userId = tg.initDataUnsafe?.user?.id;
+        let username = tg.initDataUnsafe?.user?.username || '';
+        
+        async function loadBalance() {
+            try {
+                let response = await fetch('/api/get_balance', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({user_id: userId})
+                });
+                let data = await response.json();
+                document.getElementById('balance').innerText = data.balance || 0;
+            } catch(e) {
+                console.log('Ошибка загрузки баланса');
+            }
+        }
+        
+        function showDeposit() {
+            document.getElementById('depositModal').style.display = 'block';
+        }
+        
+        function closeModal(id) {
+            document.getElementById(id).style.display = 'none';
+        }
+        
+        async function submitDeposit() {
+            let accountId = document.getElementById('accountId').value;
+            let amount = document.getElementById('amount').value;
+            let photo = document.getElementById('photo').files[0];
+            
+            if (!accountId || !amount) {
+                tg.showAlert('Заполните ID счета и сумму!');
+                return;
+            }
+            if (amount < 50 || amount > 100000) {
+                tg.showAlert('Сумма от 50 до 100 000 сом!');
+                return;
+            }
+            
+            if (!photo) {
+                tg.showAlert('Прикрепите фото чека!');
+                return;
+            }
+            
+            let reader = new FileReader();
+            reader.onload = async function(e) {
+                try {
+                    let response = await fetch('/api/deposit', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            user_id: userId,
+                            username: username,
+                            amount: parseInt(amount),
+                            account_id: accountId,
+                            photo: e.target.result
+                        })
+                    });
+                    tg.showAlert('✅ Заявка отправлена! Ожидайте подтверждения.');
+                    closeModal('depositModal');
+                    document.getElementById('accountId').value = '';
+                    document.getElementById('amount').value = '';
+                    document.getElementById('photo').value = '';
+                } catch(e) {
+                    tg.showAlert('❌ Ошибка отправки');
+                }
+            };
+            reader.readAsDataURL(photo);
+        }
+        
+        function showWithdraw() {
+            tg.showAlert('💸 Для вывода средств обратитесь в поддержку: @helpGGkassabot');
+        }
+        
+        function showSupport() {
+            tg.openTelegramLink('https://t.me/helpGGkassabot');
+        }
+        
+        loadBalance();
+    </script>
+</body>
+  </html>
